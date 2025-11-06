@@ -16,7 +16,10 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1小时会话
 # 开发环境禁用安全cookie设置
 app.config['SESSION_COOKIE_SECURE'] = False  # 开发环境禁用HTTPS要求
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # 防止JavaScript访问cookie
-app.config['SESSION_COOKIE_SAMESITE'] = True  
+# SESSION_COOKIE_SAMESITE must be a string like 'Lax', 'Strict', 'None', or None.
+# Werkzeug expects a string and will call .title() on it; using a bool caused
+# AttributeError: 'bool' object has no attribute 'title'. Use 'Lax' for dev-friendly behavior.
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 
 # 认证API配置（安全增强版）
