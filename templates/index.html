@@ -1,0 +1,777 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="toolbar" style="margin-bottom: 20px; display: flex; gap: 10px;">
+    <button class="btn" onclick="showModal('createFileModal')">新建文件</button>
+    <button class="btn" onclick="showModal('createFolderModal')">新建文件夹</button>
+    <button class="btn" onclick="showModal('searchModal')">搜索</button>
+</div>
+
+<div id="fileExplorer">
+    <!-- 文件列表将通过JavaScript动态加载 -->
+</div>
+
+<!-- 新建文件模态框 -->
+<div id="createFileModal" class="modal">
+    <div class="modal-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h3>新建Markdown文件</h3>
+        </div>
+        <form onsubmit="createFile(event)">
+            <div class="form-group">
+                <label for="fileName">文件名:</label>
+                <input type="text" id="fileName" name="fileName" placeholder="" required>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit" class="btn">创建</button>
+                <button type="button" class="secondary-btn" onclick="hideModal('createFileModal')">取消</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 新建文件夹模态框 -->
+<div id="createFolderModal" class="modal">
+    <div class="modal-content">
+        <div style="margin-bottom: 20px;">
+            <h3>新建文件夹</h3>
+        </div>
+        <form onsubmit="createFolder(event)">
+            <div class="form-group">
+                <label for="folderName">文件夹名:</label>
+                <input type="text" id="folderName" name="folderName" required>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit" class="btn">创建</button>
+                <button type="button" class="secondary-btn" onclick="hideModal('createFolderModal')">取消</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 搜索模态框 -->
+<div id="searchModal" class="modal">
+    <div class="modal-content">
+        <div style="margin-bottom: 20px;">
+            <h3>搜索文件</h3>
+        </div>
+        <div class="form-group">
+            <input type="text" id="searchQuery" placeholder="输入搜索关键词..." style="width: 100%;">
+        </div>
+        <button class="btn" onclick="performSearch()" style="width: 100%; margin-bottom: 20px;">搜索</button>
+        <div id="searchResults" style="margin-top: 20px;"></div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+            <button type="button" class="secondary-btn" onclick="hideModal('searchModal')">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- 权限管理模态框 -->
+<div id="permissionModal" class="modal">
+    <div class="modal-content">
+        <div style="margin-bottom: 20px;">
+            <h3>权限管理</h3>
+        </div>
+        <div id="permissionContent">
+            <!-- 权限内容将通过JavaScript动态加载 -->
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+            <button type="button" class="secondary-btn" onclick="hideModal('permissionModal')">关闭</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPath = "";
+
+// HTML转义函数，防止XSS攻击
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 页面加载时初始化
+window.addEventListener('DOMContentLoaded', function() {
+    // 初始加载根目录文件
+    loadFiles('');
+});
+
+// 获取当前路径
+function getCurrentPath() {
+    return currentPath;
+}
+
+// 加载文件列表
+function loadFiles(path = currentPath) {
+    fetch(`/api/files?path=${encodeURIComponent(path)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showAlert(data.error, 'error');
+                return;
+            }
+            
+            // 仅在服务器返回 current_path 时更新 currentPath，避免 undefined
+            if (typeof data.current_path !== 'undefined' && data.current_path !== null) {
+                currentPath = data.current_path;
+            }
+            
+            // 更新面包屑导航
+            updateBreadcrumb(currentPath);
+            renderFileList(data);
+        })
+        .catch(error => {
+            showAlert('加载失败: ' + error, 'error');
+        });
+}
+
+// 更新面包屑导航
+function updateBreadcrumb(path) {
+    const breadcrumb = document.getElementById('breadcrumb');
+    
+    // 显示面包屑导航
+    breadcrumb.style.display = 'flex';
+    
+    // 清空现有面包屑内容（保留首页）
+    const homeLink = breadcrumb.querySelector('.breadcrumb-home');
+    
+    // 移除除首页之外的所有元素
+    while (breadcrumb.children.length > 1) {
+        breadcrumb.removeChild(breadcrumb.lastChild);
+    }
+    
+    // 如果路径为空，只显示首页
+    if (!path) {
+        return;
+    }
+    
+    // 解析路径并生成面包屑
+    const pathParts = path.split('/').filter(part => part !== '');
+    
+    pathParts.forEach((part, index) => {
+        // 构建当前路径（从根目录到当前部分）
+        const currentPath = pathParts.slice(0, index + 1).join('/');
+        
+        // 添加分隔符（使用 > 符号）
+        const separator = document.createElement('span');
+        separator.className = 'breadcrumb-separator';
+        separator.textContent = ' > ';
+        breadcrumb.appendChild(separator);
+        
+        // 如果是最后一部分，显示为当前路径
+        if (index === pathParts.length - 1) {
+            const currentItem = document.createElement('span');
+            currentItem.className = 'breadcrumb-current';
+            currentItem.textContent = part;
+            breadcrumb.appendChild(currentItem);
+        } else {
+            // 否则显示为可点击的链接
+            const link = document.createElement('a');
+            link.className = 'breadcrumb-item';
+            link.href = 'javascript:void(0)';
+            link.textContent = part;
+            link.onclick = () => loadFiles(currentPath);
+            breadcrumb.appendChild(link);
+        }
+    });
+}
+
+// 渲染文件列表
+function renderFileList(data) {
+    const container = document.getElementById('fileExplorer');
+    
+    // 清空容器
+    container.innerHTML = '';
+    
+    // 创建文件列表容器
+    const fileList = document.createElement('div');
+    fileList.className = 'file-list';
+    
+    // 文件夹
+    data.folders.forEach(folder => {
+        const folderItem = document.createElement('div');
+        folderItem.className = 'file-item clickable';
+        
+        // 安全地设置内容
+        const folderName = document.createElement('span');
+        folderName.innerHTML = `<strong>> ${escapeHtml(folder.name)}</strong>`;
+        
+        const actions = document.createElement('div');
+        actions.className = 'file-actions';
+        
+        const permBtn = document.createElement('button');
+        permBtn.className = 'btn';
+        permBtn.textContent = '权限';
+        permBtn.onclick = (e) => {
+            e.stopPropagation();
+            showPermissions('folder', folder.path);
+        };
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn';
+        deleteBtn.textContent = '删除';
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteResource(folder.path);
+        };
+        
+        actions.appendChild(permBtn);
+        actions.appendChild(deleteBtn);
+        
+        folderItem.appendChild(folderName);
+        folderItem.appendChild(actions);
+        folderItem.onclick = () => loadFiles(folder.path);
+        
+        fileList.appendChild(folderItem);
+    });
+    
+    // 文件
+    data.files.forEach(file => {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item clickable';
+        
+        const fileName = document.createElement('span');
+        fileName.textContent = file.name;
+        
+        const actions = document.createElement('div');
+        actions.className = 'file-actions';
+        
+        const permBtn = document.createElement('button');
+        permBtn.className = 'btn';
+        permBtn.textContent = '权限';
+        permBtn.onclick = (e) => {
+            e.stopPropagation();
+            showPermissions('file', file.path);
+        };
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn';
+        deleteBtn.textContent = '删除';
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteResource(file.path);
+        };
+        
+        actions.appendChild(permBtn);
+        actions.appendChild(deleteBtn);
+        
+        fileItem.appendChild(fileName);
+        fileItem.appendChild(actions);
+        fileItem.onclick = () => editFile(file.path);
+        
+        fileList.appendChild(fileItem);
+    });
+    
+    container.appendChild(fileList);
+}
+
+// 创建文件
+function createFile(event) {
+    event.preventDefault();
+    let fileName = document.getElementById('fileName').value;
+    
+    // 确保文件名以.md结尾
+    if (!fileName.endsWith('.md')) {
+        fileName = fileName + '.md';
+    }
+    
+    const fullPath = currentPath ? `${currentPath}/${fileName}` : fileName;
+    
+    fetch(`/api/file/${encodeURIComponent(fullPath)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            content: ''
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            showAlert('文件创建成功', 'success');
+            hideModal('createFileModal');
+            loadFiles();
+        } else {
+            showAlert('创建失败: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('网络错误: ' + error, 'error');
+    });
+}
+
+// 创建文件夹
+function createFolder(event) {
+    event.preventDefault();
+    const folderName = document.getElementById('folderName').value;
+    
+    const fullPath = currentPath ? `${currentPath}/${folderName}` : folderName;
+    
+    fetch(`/api/folder/${encodeURIComponent(fullPath)}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            showAlert('文件夹创建成功', 'success');
+            hideModal('createFolderModal');
+            loadFiles();
+        } else {
+            showAlert('创建失败: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        showAlert('网络错误: ' + error, 'error');
+    });
+}
+
+// 编辑文件
+function editFile(filePath) {
+    window.open(`/editor?file=${encodeURIComponent(filePath)}`, '_blank');
+}
+
+// 删除资源
+function deleteResource(resourcePath) {
+    showConfirmModal('确定要删除吗？此操作不可恢复。', function(result) {
+        if (!result) {
+            return;
+        }
+        
+        fetch(`/api/delete/${encodeURIComponent(resourcePath)}`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showAlert(data.error, 'error');
+            } else {
+                showAlert('删除成功', 'success');
+                loadFiles();
+            }
+        });
+    });
+}
+
+// 显示权限管理
+function showPermissions(resourceType, resourcePath) {
+    fetch(`/api/permissions/${encodeURIComponent(resourcePath)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showAlert(data.error, 'error');
+                return;
+            }
+            
+            renderPermissionModal(data, resourceType, resourcePath);
+            showModal('permissionModal');
+        });
+}
+
+// 渲染权限模态框
+function renderPermissionModal(data, resourceType, resourcePath) {
+    const container = document.getElementById('permissionContent');
+    
+    // 清空容器
+    container.innerHTML = '';
+    
+    // 创建基本信息部分
+    const infoSection = document.createElement('div');
+    infoSection.style.marginBottom = '20px';
+    
+    const pathInfo = document.createElement('p');
+    pathInfo.innerHTML = `<strong>资源路径:</strong> ${escapeHtml(resourcePath)}`;
+    
+    const typeInfo = document.createElement('p');
+    typeInfo.innerHTML = `<strong>资源类型:</strong> ${resourceType === 'folder' ? '文件夹' : '文件'}`;
+    
+    infoSection.appendChild(pathInfo);
+    infoSection.appendChild(typeInfo);
+    container.appendChild(infoSection);
+    
+    // 当前权限设置
+    if (data.permissions && data.permissions.users) {
+        const currentPermsSection = document.createElement('div');
+        currentPermsSection.style.marginBottom = '20px';
+        
+        const title = document.createElement('h4');
+        title.textContent = '当前权限设置';
+        currentPermsSection.appendChild(title);
+        
+        const grid = document.createElement('div');
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = '1fr';
+        grid.style.gap = '10px';
+        
+        for (const [user, perms] of Object.entries(data.permissions.users)) {
+            const isOwner = data.permissions.owner === user;
+            
+            const userPermDiv = document.createElement('div');
+            userPermDiv.style.border = '1px solid #000';
+            userPermDiv.style.padding = '15px';
+            userPermDiv.style.display = 'grid';
+            userPermDiv.style.gridTemplateColumns = 'auto 1fr auto';
+            userPermDiv.style.gap = '15px';
+            userPermDiv.style.alignItems = 'center';
+            
+            // 用户信息
+            const userInfo = document.createElement('div');
+            const userName = document.createElement('strong');
+            userName.textContent = user;
+            const userRole = document.createElement('div');
+            userRole.style.fontSize = '12px';
+            userRole.style.color = '#666';
+            userRole.style.marginTop = '4px';
+            userRole.textContent = isOwner ? '所有者' : '用户';
+            
+            userInfo.appendChild(userName);
+            userInfo.appendChild(userRole);
+            
+            // 权限列表
+            const permsContainer = document.createElement('div');
+            permsContainer.style.display = 'flex';
+            permsContainer.style.flexWrap = 'wrap';
+            permsContainer.style.gap = '5px';
+            
+            perms.forEach(perm => {
+                const permSpan = document.createElement('span');
+                permSpan.style.background = '#f8f8f8';
+                permSpan.style.border = '1px solid #000';
+                permSpan.style.padding = '4px 8px';
+                permSpan.style.fontSize = '12px';
+                permSpan.textContent = getPermissionName(perm);
+                permsContainer.appendChild(permSpan);
+            });
+            
+            // 操作按钮
+            const actionsDiv = document.createElement('div');
+            if (!isOwner) {
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn';
+                removeBtn.style.background = '#f8f8f8';
+                removeBtn.style.color = '#333';
+                removeBtn.style.border = '1px solid #000';
+                removeBtn.style.padding = '6px 12px';
+                removeBtn.style.fontSize = '12px';
+                removeBtn.textContent = '移除';
+                removeBtn.onclick = () => removeUserPermissions(resourceType, resourcePath, user);
+                actionsDiv.appendChild(removeBtn);
+            } else {
+                const dashSpan = document.createElement('span');
+                dashSpan.style.color = '#999';
+                dashSpan.textContent = '-';
+                actionsDiv.appendChild(dashSpan);
+            }
+            
+            userPermDiv.appendChild(userInfo);
+            userPermDiv.appendChild(permsContainer);
+            userPermDiv.appendChild(actionsDiv);
+            grid.appendChild(userPermDiv);
+        }
+        
+        currentPermsSection.appendChild(grid);
+        container.appendChild(currentPermsSection);
+    } else {
+        const noPermsMsg = document.createElement('p');
+        noPermsMsg.style.background = '#f8f8f8';
+        noPermsMsg.style.border = '1px solid #000';
+        noPermsMsg.style.padding = '10px';
+        noPermsMsg.textContent = '暂无权限设置';
+        container.appendChild(noPermsMsg);
+    }
+    
+    // 添加权限表单
+    const hr = document.createElement('hr');
+    hr.style.margin = '20px 0';
+    container.appendChild(hr);
+    
+    const formTitle = document.createElement('h4');
+    formTitle.textContent = '添加/修改权限';
+    container.appendChild(formTitle);
+    
+    const formSection = document.createElement('div');
+    formSection.style.background = '#f8f8f8';
+    formSection.style.border = '1px solid #000';
+    formSection.style.padding = '15px';
+    
+    // 用户名输入
+    const userGroup = document.createElement('div');
+    userGroup.className = 'form-group';
+    
+    const userLabel = document.createElement('label');
+    userLabel.htmlFor = 'targetUser';
+    userLabel.textContent = '用户名:';
+    
+    const userInput = document.createElement('input');
+    userInput.type = 'text';
+    userInput.id = 'targetUser';
+    userInput.placeholder = '输入用户名';
+    userInput.style.width = '100%';
+    userInput.style.padding = '8px';
+    userInput.style.border = '1px solid #000';
+    
+    userGroup.appendChild(userLabel);
+    userGroup.appendChild(userInput);
+    formSection.appendChild(userGroup);
+    
+    // 权限选择
+    const permGroup = document.createElement('div');
+    permGroup.className = 'form-group';
+    
+    const permLabel = document.createElement('label');
+    permLabel.textContent = '选择权限:';
+    permGroup.appendChild(permLabel);
+    
+    const permOptions = document.createElement('div');
+    permOptions.innerHTML = getPermissionOptions(resourceType);
+    permGroup.appendChild(permOptions);
+    formSection.appendChild(permGroup);
+    
+    // 按钮
+    const buttonGroup = document.createElement('div');
+    buttonGroup.style.display = 'flex';
+    buttonGroup.style.gap = '10px';
+    buttonGroup.style.marginTop = '15px';
+    
+    const updateBtn = document.createElement('button');
+    updateBtn.className = 'btn';
+    updateBtn.style.flex = '1';
+    updateBtn.textContent = '更新权限';
+    updateBtn.onclick = () => updatePermission(resourceType, resourcePath);
+    
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'btn';
+    clearBtn.style.background = '#f8f8f8';
+    clearBtn.style.color = '#333';
+    clearBtn.style.border = '1px solid #000';
+    clearBtn.style.flex = '1';
+    clearBtn.textContent = '清空';
+    clearBtn.onclick = clearPermissionForm;
+    
+    buttonGroup.appendChild(updateBtn);
+    buttonGroup.appendChild(clearBtn);
+    formSection.appendChild(buttonGroup);
+    
+    container.appendChild(formSection);
+}
+
+// 获取权限选项
+function getPermissionOptions(resourceType) {
+    const folderPerms = ['delete_folder', 'create_file', 'create_folder', 'list_contents', 'change_permission'];
+    const filePerms = ['delete_file', 'edit_file', 'read_file', 'change_permission'];
+    
+    const permissions = resourceType === 'folder' ? folderPerms : filePerms;
+    
+    // 使用按钮形式的权限选择，更节省空间
+    return `
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0;">
+            ${permissions.map(perm => `
+                <button type="button" class="perm-btn" data-perm="${perm}" style="background: #f8f8f8; border: 1px solid #000; padding: 6px 12px; font-size: 12px; cursor: pointer;">
+                    ${getPermissionName(perm)}
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
+
+// 移除用户权限
+function removeUserPermissions(resourceType, resourcePath, targetUser) {
+    if (!confirm(`确定要移除用户 "${targetUser}" 的所有权限吗？`)) {
+        return;
+    }
+    
+    const permissions = resourceType === 'folder' ? 
+        ['delete_folder', 'create_file', 'create_folder', 'list_contents', 'change_permission'] :
+        ['delete_file', 'edit_file', 'read_file', 'change_permission'];
+    
+    // 为每个权限发送移除请求
+    const promises = permissions.map(perm => {
+        return fetch(`/api/permissions/${encodeURIComponent(resourcePath)}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                target_user: targetUser,
+                permission: perm,
+                allow: false
+            })
+        });
+    });
+    
+    Promise.all(promises)
+        .then(() => {
+            showAlert(`已移除用户 "${targetUser}" 的所有权限`, 'success');
+            // 重新加载权限信息
+            showPermissions(resourceType, resourcePath);
+        })
+        .catch(error => {
+            showAlert('权限移除失败: ' + error, 'error');
+        });
+}
+
+// 清空权限表单
+function clearPermissionForm() {
+    document.getElementById('targetUser').value = '';
+    const permButtons = document.querySelectorAll('.perm-btn');
+    permButtons.forEach(button => {
+        button.style.background = '#f8f8f8';
+        button.style.color = '#333';
+        button.dataset.selected = 'false';
+    });
+}
+
+// 获取权限名称
+function getPermissionName(perm) {
+    const names = {
+        'delete_folder': '删除文件夹',
+        'create_file': '创建文件',
+        'create_folder': '创建文件夹',
+        'list_contents': '查看内容',
+        'change_permission': '修改权限',
+        'delete_file': '删除文件',
+        'edit_file': '编辑文件',
+        'read_file': '读取文件'
+    };
+    return names[perm] || perm;
+}
+
+// 获取权限描述
+function getPermissionDescription(perm) {
+    const descriptions = {
+        'delete_folder': '允许删除当前文件夹',
+        'create_file': '允许在当前文件夹中创建文件',
+        'create_folder': '允许在当前文件夹中创建子文件夹',
+        'list_contents': '允许查看文件夹内的文件和子文件夹',
+        'change_permission': '允许修改当前资源的权限设置',
+        'delete_file': '允许删除当前文件',
+        'edit_file': '允许编辑当前文件内容',
+        'read_file': '允许读取当前文件内容'
+    };
+    return descriptions[perm] || '权限描述';
+}
+
+// 更新权限
+function updatePermission(resourceType, resourcePath) {
+    const targetUser = document.getElementById('targetUser').value;
+    if (!targetUser) {
+        showAlert('请输入用户名', 'error');
+        return;
+    }
+    
+    const permButtons = document.querySelectorAll('.perm-btn');
+    const permissions = [];
+    
+    permButtons.forEach(button => {
+        if (button.dataset.selected === 'true') {
+            permissions.push(button.dataset.perm);
+        }
+    });
+    
+    if (permissions.length === 0) {
+        showAlert('请至少选择一个权限', 'error');
+        return;
+    }
+    
+    // 为每个权限发送更新请求
+    const promises = permissions.map(perm => {
+        return fetch(`/api/permissions/${encodeURIComponent(resourcePath)}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                target_user: targetUser,
+                permission: perm,
+                allow: true
+            })
+        });
+    });
+    
+    Promise.all(promises)
+        .then(() => {
+            showAlert(`权限更新成功：已为用户 "${targetUser}" 设置 ${permissions.length} 个权限`, 'success');
+            // 清空表单
+            clearPermissionForm();
+            // 重新加载权限信息
+            showPermissions(resourceType, resourcePath);
+        })
+        .catch(error => {
+            showAlert('权限更新失败: ' + error, 'error');
+        });
+}
+
+// 搜索功能
+function performSearch() {
+    const query = document.getElementById('searchQuery').value;
+    if (!query) return;
+    
+    fetch(`/api/search?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            const resultsContainer = document.getElementById('searchResults');
+            
+            // 清空容器
+            resultsContainer.innerHTML = '';
+            
+            if (data.results.length === 0) {
+                const noResults = document.createElement('p');
+                noResults.textContent = '未找到匹配结果';
+                resultsContainer.appendChild(noResults);
+                return;
+            }
+            
+            const title = document.createElement('h4');
+            title.textContent = '搜索结果:';
+            resultsContainer.appendChild(title);
+            
+            data.results.forEach(result => {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'file-item';
+                
+                const fileName = document.createElement('span');
+                fileName.textContent = `${result.name} (${result.match_type === 'filename' ? '文件名匹配' : '内容匹配'})`;
+                
+                const actions = document.createElement('div');
+                actions.className = 'file-actions';
+                
+                const editBtn = document.createElement('button');
+                editBtn.className = 'btn';
+                editBtn.textContent = '编辑';
+                editBtn.onclick = () => editFile(result.path);
+                
+                actions.appendChild(editBtn);
+                
+                resultItem.appendChild(fileName);
+                resultItem.appendChild(actions);
+                resultsContainer.appendChild(resultItem);
+            });
+        });
+}
+
+// 权限按钮点击事件处理
+function setupPermissionButtons() {
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('perm-btn')) {
+            const button = e.target;
+            const isSelected = button.dataset.selected === 'true';
+            
+            if (isSelected) {
+                // 取消选中
+                button.style.background = '#f8f8f8';
+                button.style.color = '#333';
+                button.dataset.selected = 'false';
+            } else {
+                // 选中
+                button.style.background = '#000';
+                button.style.color = '#fff';
+                button.dataset.selected = 'true';
+            }
+        }
+    });
+}
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadFiles();
+    setupPermissionButtons();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}登录 - Iron_Grey_的Blog系统{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 100px auto;">
+    <h2 style="text-align: center; margin-bottom: 30px;">用户登录</h2>
+    
+    {% if error %}
+    <div class="alert error">{{ error | e }}</div>
+    {% endif %}
+    
+    <form method="POST">
+        <div class="form-group">
+            <label for="user_id">用户名:</label>
+            <input type="text" id="user_id" name="user_id" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="password">密码:</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        
+        <!-- 留出一个标题的空，保持间距一致 -->
+        <div class="form-group">
+            <label style="visibility: hidden;font-size: 7px;">占位标题</label>
+        </div>
+        
+        <button type="submit" class="btn" style="width: 100%;">登录</button>
+    </form>
+</div>
+
+<style>
+.nav-links a[href="{{ url_for('login') }}"] {
+    display: none !important;
+}
+</style>
+{% endblock %}
