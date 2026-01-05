@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>编辑文档 - Iron_Grey_的Blog系统</title>
+    
+    <!-- Vditor CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/vditor@3.9.8/dist/index.css" rel="stylesheet">
+    
     <style>
         * {
             margin: 0;
@@ -41,50 +45,15 @@
         }
         
         .editor-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
             height: calc(100vh - 60px);
+            margin: 0;
+            padding: 0;
         }
         
-        .editor, .preview {
-            background: #fff;
-            border: 2px solid #000;
-            margin: 10px;
-        }
-        
-        textarea {
-            width: 100%;
+        #vditor {
             height: 100%;
             border: none;
-            resize: none;
-            font-family: monospace;
-            font-size: 14px;
-            padding: 15px;
-            outline: none;
-        }
-        
-        .preview {
-            padding: 15px;
-            overflow-y: auto;
-        }
-        
-        .preview h1, .preview h2, .preview h3 {
-            margin: 20px 0 10px 0;
-        }
-        
-        .preview p {
-            margin: 10px 0;
-        }
-        
-        .preview code {
-            background: #f5f5f5;
-            padding: 2px 4px;
-        }
-        
-        .preview pre {
-            background: #f5f5f5;
-            padding: 10px;
-            overflow-x: auto;
+            border-radius: 0;
         }
         
         .toast-container {
@@ -155,7 +124,7 @@
         }
         
         /* 焦点控件特效颜色 - 黑白风格 */
-        textarea:focus, button:focus {
+        button:focus {
             outline: 2px solid #000;
             outline-offset: 1px;
         }
@@ -166,33 +135,40 @@
             color: #fff !important;
             border-color: #000 !important;
         }
+        
+        /* Vditor 自定义样式 */
+        .vditor-toolbar {
+            border-bottom: 1px solid #eaecef;
+        }
+        
+        .vditor-content {
+            background: #fff;
+        }
     </style>
 </head>
 <body>
     <div class="toolbar">
         <div>
-            <button class="btn" onclick="">保存</button>
+            <button class="btn" onclick="saveFile()">保存</button>
             <button class="btn" onclick="window.close()">关闭</button>
         </div>
         <div id="fileInfo"></div>
     </div>
 
     <div class="editor-container">
-        <div class="editor">
-            <textarea id="markdownEditor" placeholder="在此输入Markdown内容..."></textarea>
-        </div>
-        <div class="preview" id="markdownPreview">
-            <!-- 预览内容将通过JavaScript渲染 -->
-        </div>
+        <div id="vditor"></div>
     </div>
 
     <div id="toastContainer" class="toast-container"></div>
 
-    <!-- 使用 jsDelivr CDN（更不容易被广告插件拦截）提供 markdown-it 与 DOMPurify -->
-    <script src="https://cdn.jsdelivr.net/npm/markdown-it@12.0.6/dist/markdown-it.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@2.3.10/dist/purify.min.js"></script>
+    <!-- Vditor JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/vditor@3.9.8/dist/index.min.js"></script>
 
     <script>
+        let vditor;
+        let autoSaveTimer = null;
+        let lastSavedContent = '';
+        
         // 获取URL参数
         function getUrlParams() {
             const params = new URLSearchParams(window.location.search);
@@ -234,23 +210,6 @@
             }, 5000);
         }
 
-        // 初始化 markdown-it 渲染器
-        const md = window.markdownit({ html: false, linkify: true, typographer: true });
-
-        // 安全地渲染 Markdown -> HTML（使用 DOMPurify 清理）
-        function renderMarkdown(text) {
-            try {
-                const raw = md.render(text || '');
-                // 使用 DOMPurify 清理输出，防止 XSS
-                if (window.DOMPurify) {
-                    return DOMPurify.sanitize(raw);
-                }
-                return raw;
-            } catch (e) {
-                return '<pre style="color: red;">渲染出错: ' + String(e) + '</pre>';
-            }
-        }
-
         // 加载文件内容
         function loadFile() {
             const params = getUrlParams();
@@ -269,8 +228,10 @@
                     if (data.error) {
                         showAlert(data.error, 'error');
                     } else {
-                        document.getElementById('markdownEditor').value = data.content;
-                        updatePreview();
+                        // 设置上次保存的内容
+                        lastSavedContent = data.content;
+                        // 初始化Vditor编辑器
+                        initVditor(data.content);
                     }
                 })
                 .catch(error => {
@@ -278,17 +239,113 @@
                 });
         }
 
-        // 更新预览
-        function updatePreview() {
-            const content = document.getElementById('markdownEditor').value;
-            document.getElementById('markdownPreview').innerHTML = renderMarkdown(content);
+        // 初始化Vditor编辑器
+        function initVditor(content) {
+            vditor = new Vditor('vditor', {
+                mode: 'wysiwyg',
+                value: content || '',
+                minHeight: window.innerHeight - 60,
+                cache: {
+                    enable: false
+                },
+                upload: {
+                    accept: 'image/*,.mp3,.mp4,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar',
+                    handler: (files) => {
+                        // 文件上传处理
+                        showAlert('文件上传功能需要后端支持', 'info');
+                        return false;
+                    }
+                },
+                toolbar: [
+                    'emoji',
+                    'headings',
+                    'bold',
+                    'italic',
+                    'strike',
+                    'link',
+                    '|',
+                    'list',
+                    'ordered-list',
+                    'check',
+                    'outdent',
+                    'indent',
+                    '|',
+                    'quote',
+                    'line',
+                    'code',
+                    'inline-code',
+                    'insert-before',
+                    'insert-after',
+                    '|',
+                    'table',
+                    '|',
+                    'undo',
+                    'redo',
+                    '|',
+                    'fullscreen',
+                    'edit-mode',
+                    '|',
+                    'preview',
+                    'outline',
+                    'code-theme',
+                    'content-theme',
+                    'export'
+                ],
+                preview: {
+                    markdown: {
+                        toc: true,
+                        mark: true,
+                        footnotes: true,
+                        autoSpace: true
+                    },
+                    math: {
+                        engine: 'KaTeX'
+                    },
+                    theme: {
+                        current: 'light'
+                    }
+                },
+                theme: 'classic',
+                icon: 'material',
+                placeholder: '开始写作...',
+                lang: 'zh_CN',
+                input: (value) => {
+                    // 内容变化时的回调
+                    scheduleAutoSave();
+                },
+                focus: (value) => {
+                    // 获得焦点时的回调
+                },
+                blur: (value) => {
+                    // 失去焦点时的回调
+                },
+                select: (value) => {
+                    // 选中文本时的回调
+                }
+            });
+        }
+
+        // 定时自动保存
+        function scheduleAutoSave() {
+            if (autoSaveTimer) {
+                clearTimeout(autoSaveTimer);
+            }
+            
+            autoSaveTimer = setTimeout(() => {
+                const currentContent = vditor ? vditor.getValue() : '';
+                if (currentContent !== lastSavedContent) {
+                    saveFile(); // 自动保存也显示提示
+                }
+            }, 30000); // 30秒后自动保存
         }
 
         // 保存文件
         function saveFile() {
+            if (!vditor) return;
+            
             const params = getUrlParams();
             const filePath = params.file;
-            const content = document.getElementById('markdownEditor').value;
+            const content = vditor.getValue();
 
             fetch(`/api/file/${encodeURIComponent(filePath)}`, {
                 method: 'POST',
@@ -300,6 +357,7 @@
                 if (data.error) {
                     showAlert(data.error, 'error');
                 } else {
+                    lastSavedContent = content;
                     showAlert('保存成功', 'success');
                 }
             })
@@ -312,24 +370,22 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadFile();
 
-            // 实时预览
-            document.getElementById('markdownEditor').addEventListener('input', updatePreview);
-
-                // 自动保存：改为在编辑器失去焦点或页面不可见时触发保存
-                const editor = document.getElementById('markdownEditor');
-                if (editor) {
-                    editor.addEventListener('blur', function() {
-                        // 在失去焦点时保存
-                        saveFile();
-                    });
-                }
-
-                // 当页面不可见（切换标签）时保存一次
-                document.addEventListener('visibilitychange', function() {
-                    if (document.hidden) {
-                        saveFile();
+            // 当页面不可见（切换标签）时保存一次
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden && vditor) {
+                    const currentContent = vditor.getValue();
+                    if (currentContent !== lastSavedContent) {
+                        saveFile(); // 页面隐藏时也显示提示
                     }
-                });
+                }
+            });
+            
+            // 窗口大小变化时调整编辑器高度
+            window.addEventListener('resize', function() {
+                if (vditor) {
+                    vditor.setMinHeight(window.innerHeight - 60);
+                }
+            });
         });
     </script>
 </body>
