@@ -102,14 +102,23 @@
             color: #000;
         }
         
-        /* 隐藏所有滚动条 */
+        /* 显示滚动条 */
         ::-webkit-scrollbar {
-            display: none;
+            width: 8px;
+            height: 8px;
         }
         
-        * {
-            scrollbar-width: none;
-            -ms-overflow-style: none;
+        ::-webkit-scrollbar-track {
+            background: #f5f5f5;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 0;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #999;
         }
         
         /* 文字选中颜色 - 黑白风格 */
@@ -376,6 +385,23 @@
                     const currentContent = vditor.getValue();
                     if (currentContent !== lastSavedContent) {
                         saveFile(); // 页面隐藏时也显示提示
+                    }
+                }
+            });
+            
+            // 页面关闭或刷新时保存一次
+            window.addEventListener('beforeunload', function(e) {
+                if (vditor) {
+                    const currentContent = vditor.getValue();
+                    if (currentContent !== lastSavedContent) {
+                        // 尝试同步保存，但可能无法完成
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', `/api/file/${encodeURIComponent(getUrlParams().file)}`, false);
+                        xhr.setRequestHeader('Content-Type', 'application/json');
+                        xhr.send(JSON.stringify({content: currentContent}));
+                        
+                        // 显示提示信息
+                        e.returnValue = '文档有未保存的更改，正在保存...';
                     }
                 }
             });
